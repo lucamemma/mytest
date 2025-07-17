@@ -1,18 +1,20 @@
 # Mytest Subito Project
 
 ## Order API Service
-This project is a RESTful API service written in Go for managing products and customer orders. It is designed to be testable, maintainable, and easily run within a containerized environment for both development and testing.
+This project is a RESTful API service written in Go for managing customer orders from a cart.
 
 ## Features
-Create an Order: POST /order
-Welcome Endpoint: GET /
-List Products: GET /products (for manual testing)
-Get an Order by ID: GET /orders/{id}
-Default 404 Handler: All undefined routes return a clean JSON "Not Found" error.
+Contains the following features:
+
+- Create an Order: POST /order
+- Welcome Endpoint: GET /
+- List Products: GET /products (for manual testing)
+- Get an Order by ID: GET /orders/{id}
+- Default 404 Handler: All undefined routes return a clean JSON "Not Found" error.
 
 ## Architectural Decisions
-This project was built starting from the 4 commands shown in the last sections, to interpolate what was expected to be the result. The commands point to a single image approach, where only a web server resides.
-For this reason all is designed to have no real database interactions while running. The whle data will be stored in-memory for as long the server is running (and with mock interactions during the Unit Tests).
+This project was built starting from the four commands shown in the last sections, to better interpolate what was expected to be a working result. The commands point towards a single  web server image running a Go app, given that there is no compose command. This means a docker-compose.yml would be ignored.
+For these reasons all is designed to have no real database interactions while running. The whole data will be stored in-memory for as long as the server is running (and with mock interactions during the Unit Tests).
 
 ### 1. Decoupling with Interfaces (DBExecutor)
 The core of the application's design is the use of interfaces (DBExecutor, TxExecutor, RowLike, RowsLike) to abstract away the concrete database/sql package.
@@ -23,15 +25,14 @@ This allows us to test our application's logic without needing to connect to a l
 ### 2. Dual Testing Strategy: Mocks vs. In-Memory DB
 The project uses two distinct types of "fake" databases for different testing purposes:
 
-Unit Testing (main_test.go): The unit tests use mock objects created with the testify/mock library. 
+- Unit Testing (main_test.go): The unit tests use mock objects created with the testify/mock library. 
 
-Manual & Runtime Testing (run.sh): When the application is run via ./scripts/run.sh, it starts up in a special "mock mode" triggered by the DB_HOST=mock environment variable. In this mode, it uses a stateful in-memory database (InMemoryStore).
+- Manual & Runtime Testing (run.sh): When the application is run via ./scripts/run.sh, it starts up in a special "mock mode" triggered by the DB_HOST=mock environment variable. In this mode, it uses a stateful in-memory database (InMemoryStore).
 
-### 3. Robust Error Handling
-The HTTP handlers have been specifically updated to provide correct and user-friendly error responses.
+### 3. Request and response
+Starting from the request and response examples given, the *product_id* is defined as an integer (>0). The *quantity* as well is defined as an integer considering items that can only be sold in their entirety. 
+The response numeric values such as *vat*, *price*, *order_vat*, *order_price* are handled as two digits floating numbers keeping in mind they represent a currency value (english format).
 
-### 4. Dockerization for Portability
-The entire application is designed to be built and run inside a Docker container.
 
 ## Prerequisites
 This project needs Docker installed and running.

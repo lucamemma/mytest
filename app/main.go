@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"sync"
@@ -18,7 +19,7 @@ import (
 
 // --- Struct Definitions ---
 
-// Product represents a product in our simulated catalog for API request/response.
+// simulated catalog product for API request/response.
 type Product struct {
 	ID      int     `json:"id"`
 	Name    string  `json:"name"`
@@ -26,7 +27,7 @@ type Product struct {
 	VATRate float64 `json:"vat_rate"` // VAT rate, e.g., 0.22 for 22%
 }
 
-// DBProduct represents the structure of the 'products' table in the database.
+// DBProduct 'products' table in the database.
 type DBProduct struct {
 	ID      int
 	Name    string
@@ -34,35 +35,34 @@ type DBProduct struct {
 	VATRate float64
 }
 
-// IncomingOrderItem represents an item in the request body.
+// IncomingOrderItem represents an item in request body.
 type IncomingOrderItem struct {
 	ProductID int `json:"product_id"`
 	Quantity  int `json:"quantity"`
 }
 
-// OutgoingOrderItem represents an item in the response body (with calculated prices).
+// item in the response body
 type OutgoingOrderItem struct {
 	ProductID int     `json:"product_id"`
 	Quantity  int     `json:"quantity"`
-	Price     float64 `json:"price"`    // Unit price of the product
-	ItemVAT   float64 `json:"item_vat"` // VAT amount for this specific item (quantity * unit_price * vat_rate)
+	Price     float64 `json:"price"`
+	ItemVAT   float64 `json:"vat"`
 }
 
-// IncomingOrder represents the overall order structure as received in the request body.
+// order structure
 type IncomingOrder struct {
 	Items []IncomingOrderItem `json:"items"` // A list of items in the order
 }
 
-// OutgoingOrder represents the overall order structure as returned in the response body,
-// including the generated order ID, total price, total VAT, and the detailed list of items.
+// order structure as returned in the response body,
 type OutgoingOrder struct {
 	OrderID         string              `json:"order_id"`
-	TotalOrderPrice float64             `json:"total_order_price"`
-	VATAmount       float64             `json:"vat_amount"`
+	TotalOrderPrice float64             `json:"order_price"`
+	VATAmount       float64             `json:"order_vat"`
 	Items           []OutgoingOrderItem `json:"items"`
 }
 
-// OrderRecord represents a row in the 'orders' table.
+// a row in the 'orders' table.
 type OrderRecord struct {
 	OrderID    string
 	TotalPrice float64
@@ -70,7 +70,7 @@ type OrderRecord struct {
 	CreatedAt  time.Time
 }
 
-// OrderItemRecord represents a row in the 'order_items' table.
+// a row in the 'order_items' table.
 type OrderItemRecord struct {
 	ItemID    int // SERIAL PRIMARY KEY in DB, so it's auto-generated
 	OrderID   string
@@ -79,9 +79,6 @@ type OrderItemRecord struct {
 	UnitPrice float64
 	ItemVAT   float64
 }
-
-// --- Interfaces for Testability ---
-// These interfaces abstract away the concrete database/sql types, allowing us to mock them.
 
 // RowLike abstracts the behavior of *sql.Row.
 type RowLike interface {
@@ -147,13 +144,12 @@ func (db *sqlDBAdapter) Exec(query string, args ...interface{}) (sql.Result, err
 
 // --- In-Memory Store for Mocking a running DB ---
 
-// InMemoryResult implements sql.Result for the in-memory store.
+// implements sql.Result for the in-memory store.
 type InMemoryResult struct {
 	rowsAffected int64
 }
 
 func (r *InMemoryResult) LastInsertId() (int64, error) {
-	// This mock doesn't support LastInsertId
 	return 0, errors.New("LastInsertId is not supported in in-memory mock")
 }
 
@@ -161,7 +157,7 @@ func (r *InMemoryResult) RowsAffected() (int64, error) {
 	return r.rowsAffected, nil
 }
 
-// InMemoryStore holds data in memory for mock mode. It is thread-safe.
+// holds data in memory for mock mode/ thread-safe.
 type InMemoryStore struct {
 	mu         sync.RWMutex
 	products   map[int]DBProduct
@@ -170,7 +166,7 @@ type InMemoryStore struct {
 	nextItemID int
 }
 
-// NewInMemoryStore creates and initializes an in-memory store.
+// creates and initializes an in-memory store
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
 		products:   make(map[int]DBProduct),
@@ -180,23 +176,21 @@ func NewInMemoryStore() *InMemoryStore {
 	}
 }
 
-// Populate with some sample products.
+// sample products
 func (s *InMemoryStore) Populate() {
-	s.products[1] = DBProduct{ID: 1, Name: "Nice PC", Price: 1499.99, VATRate: 0.23}
+	s.products[1] = DBProduct{ID: 1, Name: "Laptop Pro", Price: 1499.99, VATRate: 0.22}
 	s.products[2] = DBProduct{ID: 2, Name: "Wireless Mouse", Price: 79.99, VATRate: 0.22}
-	s.products[3] = DBProduct{ID: 3, Name: "Keyboard", Price: 129.99, VATRate: 0.22}
+	s.products[3] = DBProduct{ID: 3, Name: "Mechanical Keyboard", Price: 129.99, VATRate: 0.22}
 	s.products[4] = DBProduct{ID: 4, Name: "4K Monitor", Price: 649.50, VATRate: 0.22}
-	s.products[4] = DBProduct{ID: 5, Name: "HD Monitor", Price: 150.50, VATRate: 0.15}
+	s.products[5] = DBProduct{ID: 5, Name: "HD Monitor", Price: 150.50, VATRate: 0.15}
 }
 
-// InMemoryDB is the mock implementation of DBExecutor that uses the in-memory store.
+// mock implementation of DBExecutor that uses the in-memory store
 type InMemoryDB struct {
 	store *InMemoryStore
 }
 
 func (db *InMemoryDB) Begin() (TxExecutor, error) {
-	// For the in-memory store, transactions are not complex. We can return the same store
-	// wrapped in the TxExecutor interface, as it implements all necessary methods.
 	return &InMemoryTx{store: db.store}, nil
 }
 
@@ -243,7 +237,7 @@ func (db *InMemoryDB) Exec(query string, args ...interface{}) (sql.Result, error
 	return nil, errors.New("exec should be called on a transaction, not directly on the DB")
 }
 
-// InMemoryTx is the mock implementation of TxExecutor.
+// mock implementation of TxExecutor.
 type InMemoryTx struct {
 	store *InMemoryStore
 }
@@ -257,8 +251,6 @@ func (tx *InMemoryTx) Query(query string, args ...interface{}) (RowsLike, error)
 }
 
 func (tx *InMemoryTx) QueryRow(query string, args ...interface{}) RowLike {
-	// FIX: Use a write lock because one of the code paths performs a write (INSERT).
-	// This prevents a deadlock where a goroutine holding a read lock tries to acquire a write lock.
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
 
@@ -321,7 +313,7 @@ func (tx *InMemoryTx) Exec(query string, args ...interface{}) (sql.Result, error
 	return nil, fmt.Errorf("in-memory mock for Exec not implemented: %s", query)
 }
 
-// InMemoryRow is the mock implementation of RowLike.
+// mock implementation of RowLike.
 type InMemoryRow struct {
 	data []interface{}
 	err  error
@@ -351,7 +343,7 @@ func (r *InMemoryRow) Scan(dest ...interface{}) error {
 	return nil
 }
 
-// InMemoryRows is the mock implementation of RowsLike.
+// mock implementation of RowsLike.
 type InMemoryRows struct {
 	data         [][]interface{}
 	currentIndex int
@@ -395,7 +387,7 @@ func main() {
 
 		var err error
 		var db *sql.DB
-		// Implement a retry mechanism for database connection.
+
 		for i := 0; i < 10; i++ {
 			db, err = sql.Open("postgres", connStr)
 			if err != nil {
@@ -426,9 +418,11 @@ func main() {
 	router := mux.NewRouter()
 
 	// API Routes - Pass the chosen executor (real or mock) to the handlers.
+	router.NotFoundHandler = http.HandlerFunc(notFoundHandler)
+
 	router.HandleFunc("/", homeHandler).Methods("GET")
 	router.HandleFunc("/products", getProductsHandler(dbExecutor)).Methods("GET")
-	router.HandleFunc("/orders", createOrderHandler(dbExecutor)).Methods("POST")
+	router.HandleFunc("/order", createOrderHandler(dbExecutor)).Methods("POST")
 	router.HandleFunc("/orders/{id}", getOrderHandler(dbExecutor)).Methods("GET")
 
 	port := os.Getenv("PORT")
@@ -440,15 +434,22 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, router))
 }
 
-// homeHandler responds to the root URL with a welcome message.
+// responds to the root URL with a welcome message.
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Welcome to the Subito Project Order API!"})
 }
 
+// all requests to undefined routes.
+func notFoundHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotFound)
+	json.NewEncoder(w).Encode(map[string]string{"error": "Not Found"})
+}
+
 // --- Product Database Functions ---
 
-// GetProductByID fetches a single product from the 'products' table by its ID.
+// fetches a single product from the 'products' table by its ID
 func GetProductByID(executor TxExecutor, productID int) (*DBProduct, error) {
 	var product DBProduct
 	row := executor.QueryRow("SELECT id, name, price, vat_rate FROM products WHERE id = $1", productID)
@@ -463,7 +464,7 @@ func GetProductByID(executor TxExecutor, productID int) (*DBProduct, error) {
 	return &product, nil
 }
 
-// GetAllProducts fetches all products from the 'products' table.
+// fetches all products from the 'products' table
 func GetAllProducts(executor DBExecutor) ([]DBProduct, error) {
 	rows, err := executor.Query("SELECT id, name, price, vat_rate FROM products")
 	if err != nil {
@@ -486,9 +487,7 @@ func GetAllProducts(executor DBExecutor) ([]DBProduct, error) {
 	return products, nil
 }
 
-// --- Order Database Functions ---
-
-// InsertOrder inserts a new order record into the 'orders' table.
+// inserts a new order record into the 'orders' table
 func InsertOrder(executor TxExecutor, order *OrderRecord) error {
 	_, err := executor.Exec("INSERT INTO orders (order_id, total_price, vat_amount, created_at) VALUES ($1, $2, $3, $4)",
 		order.OrderID, order.TotalPrice, order.VATAmount, order.CreatedAt)
@@ -498,17 +497,17 @@ func InsertOrder(executor TxExecutor, order *OrderRecord) error {
 	return nil
 }
 
-// UpdateOrderTotals updates the total_price and vat_amount for an existing order.
+// updates the total_price and vat_amount for an existing order
 func UpdateOrderTotals(executor TxExecutor, orderID string, totalPrice, vatAmount float64) error {
 	_, err := executor.Exec("UPDATE orders SET total_price = $1, vat_amount = $2 WHERE order_id = $3",
-		totalPrice, vatAmount, orderID)
+		toFixed(totalPrice, 2), toFixed(vatAmount, 2), orderID)
 	if err != nil {
 		return fmt.Errorf("failed to update order totals: %w", err)
 	}
 	return nil
 }
 
-// GetOrderByID fetches a complete order by its ID, including its items.
+// fetches a complete order by its ID, including its items.
 func GetOrderByID(executor DBExecutor, orderID string) (*OutgoingOrder, error) {
 	var orderRecord OrderRecord
 	row := executor.QueryRow("SELECT order_id, total_price, vat_amount, created_at FROM orders WHERE order_id = $1", orderID)
@@ -537,7 +536,7 @@ func GetOrderByID(executor DBExecutor, orderID string) (*OutgoingOrder, error) {
 
 // --- Order Item Database Functions ---
 
-// InsertOrderItem inserts a new order item record into the 'order_items' table.
+// inserts a new order item record into the 'order_items' table.
 func InsertOrderItem(executor TxExecutor, item *OrderItemRecord) (int, error) {
 	var itemID int
 	sqlStatement := `
@@ -577,7 +576,7 @@ func GetOrderItemsByOrderID(executor DBExecutor, orderID string) ([]OutgoingOrde
 
 // --- HTTP Handlers ---
 
-// getProductsHandler returns an http.HandlerFunc that uses the provided DBExecutor.
+// returns an http.HandlerFunc that uses the provided DBExecutor. for manual tests
 func getProductsHandler(executor DBExecutor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		products, err := GetAllProducts(executor)
@@ -585,7 +584,6 @@ func getProductsHandler(executor DBExecutor) http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("Failed to retrieve products: %v", err), http.StatusInternalServerError)
 			return
 		}
-		// Convert DBProduct to the public Product struct for the response
 		publicProducts := []Product{}
 		for _, p := range products {
 			publicProducts = append(publicProducts, Product{
@@ -603,7 +601,7 @@ func getProductsHandler(executor DBExecutor) http.HandlerFunc {
 	}
 }
 
-// createOrderHandler returns an http.HandlerFunc that uses the provided DBExecutor.
+// returns an http.HandlerFunc that uses the provided DBExecutor.
 func createOrderHandler(executor DBExecutor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var incomingOrder IncomingOrder
@@ -657,16 +655,16 @@ func createOrderHandler(executor DBExecutor) http.HandlerFunc {
 			}
 
 			itemTotalPrice := product.Price * float64(item.Quantity)
-			itemVAT := itemTotalPrice * product.VATRate
+			itemVAT := product.Price * product.VATRate
 
 			totalOrderPrice += itemTotalPrice
-			vatAmount += itemVAT
+			vatAmount += itemVAT * float64(item.Quantity)
 
 			outgoingItems = append(outgoingItems, OutgoingOrderItem{
 				ProductID: item.ProductID,
 				Quantity:  item.Quantity,
 				Price:     product.Price,
-				ItemVAT:   itemVAT,
+				ItemVAT:   toFixed(itemVAT, 2),
 			})
 
 			orderItemRecord := &OrderItemRecord{
@@ -674,7 +672,7 @@ func createOrderHandler(executor DBExecutor) http.HandlerFunc {
 				ProductID: item.ProductID,
 				Quantity:  item.Quantity,
 				UnitPrice: product.Price,
-				ItemVAT:   itemVAT,
+				ItemVAT:   toFixed(itemVAT, 2),
 			}
 			if _, err := InsertOrderItem(tx, orderItemRecord); err != nil {
 				http.Error(w, fmt.Sprintf("Failed to insert order item: %v", err), http.StatusInternalServerError)
@@ -694,8 +692,8 @@ func createOrderHandler(executor DBExecutor) http.HandlerFunc {
 
 		outgoingOrder := OutgoingOrder{
 			OrderID:         orderID,
-			TotalOrderPrice: totalOrderPrice,
-			VATAmount:       vatAmount,
+			TotalOrderPrice: toFixed(totalOrderPrice, 2),
+			VATAmount:       toFixed(vatAmount, 2),
 			Items:           outgoingItems,
 		}
 
@@ -705,7 +703,7 @@ func createOrderHandler(executor DBExecutor) http.HandlerFunc {
 	}
 }
 
-// getOrderHandler returns an http.HandlerFunc that uses the provided DBExecutor.
+// returns an http.HandlerFunc that uses the provided DBExecutor. for manual tests
 func getOrderHandler(executor DBExecutor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
@@ -724,4 +722,14 @@ func getOrderHandler(executor DBExecutor) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(order)
 	}
+}
+
+// float helpers for currency formatting
+func round(num float64) int {
+	return int(num + math.Copysign(0.5, num))
+}
+
+func toFixed(num float64, precision int) float64 {
+	output := math.Pow(10, float64(precision))
+	return float64(round(num*output)) / output
 }

@@ -14,9 +14,6 @@ import (
 )
 
 // --- Test Mock Implementations ---
-// FIX: The mock definitions are now included directly in the test file.
-// This makes the test self-contained and resolves the "undefined" compile error.
-// These structs implement the database interfaces defined in main.go for unit testing.
 
 type MockResult struct{ mock.Mock }
 
@@ -106,23 +103,18 @@ func (m *MockDB) Exec(query string, args ...interface{}) (sql.Result, error) {
 // --- Unit Tests for HTTP Handlers ---
 
 func TestCreateOrderHandler_Success(t *testing.T) {
-	// For unit tests, we use the testify/mock objects to precisely control behavior.
 	mockDB := &MockDB{}
 	mockTx := &MockTx{}
 
-	// Mock DB.Begin() to return our mock transaction.
 	mockDB.On("Begin").Return(mockTx, nil)
 
-	// Mock transaction methods.
 	mockTx.On("Rollback").Return(nil)
 	mockTx.On("Commit").Return(nil)
 
-	// Mock initial order insertion.
 	mockResult := new(MockResult)
 	mockResult.On("RowsAffected").Return(int64(1), nil)
 	mockTx.On("Exec", "INSERT INTO orders (order_id, total_price, vat_amount, created_at) VALUES ($1, $2, $3, $4)", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockResult, nil).Once()
 
-	// Mock GetProductByID for the first product.
 	mockRow1 := &MockRow{}
 	mockRow1.On("Scan", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		*(args.Get(0).(*int)) = 1
@@ -142,7 +134,6 @@ func TestCreateOrderHandler_Success(t *testing.T) {
 	}).Return(nil)
 	mockTx.On("QueryRow", "SELECT id, name, price, vat_rate FROM products WHERE id = $1", 2).Return(mockRow2)
 
-	// Mock InsertOrderItem for both items.
 	mockItemRow := &MockRow{}
 	mockItemRow.On("Scan", mock.Anything).Run(func(args mock.Arguments) {
 		*(args.Get(0).(*int)) = 1 // Return some item ID
@@ -154,10 +145,8 @@ func TestCreateOrderHandler_Success(t *testing.T) {
 	mockTx.On("QueryRow", insertItemSQL, mock.Anything, 1, 1, 1200.00, 264.0).Return(mockItemRow).Once()
 	mockTx.On("QueryRow", insertItemSQL, mock.Anything, 2, 2, 150.00, 66.0).Return(mockItemRow).Once()
 
-	// Mock final order update.
 	mockTx.On("Exec", "UPDATE orders SET total_price = $1, vat_amount = $2 WHERE order_id = $3", 1500.00, 330.00, mock.Anything).Return(mockResult, nil).Once()
 
-	// Prepare and send request.
 	orderPayload := IncomingOrder{
 		Items: []IncomingOrderItem{
 			{ProductID: 1, Quantity: 1},
@@ -170,7 +159,6 @@ func TestCreateOrderHandler_Success(t *testing.T) {
 	handler := createOrderHandler(mockDB)
 	handler.ServeHTTP(rr, req)
 
-	// Assertions.
 	assert.Equal(t, http.StatusCreated, rr.Code)
 	var responseOrder OutgoingOrder
 	err := json.NewDecoder(rr.Body).Decode(&responseOrder)
@@ -180,7 +168,6 @@ func TestCreateOrderHandler_Success(t *testing.T) {
 	assert.InDelta(t, 330.00, responseOrder.VATAmount, 0.001)
 	assert.Len(t, responseOrder.Items, 2)
 
-	// Verify that all mock expectations were met.
 	mockDB.AssertExpectations(t)
 	mockTx.AssertExpectations(t)
 }
@@ -210,8 +197,7 @@ func TestGetProductsHandler_Success(t *testing.T) {
 func TestGetOrderHandler_NotFound(t *testing.T) {
 	mockDB := &MockDB{}
 	mockRow := &MockRow{}
-	// FIX: The mock for Scan must match the number of arguments in the actual call.
-	// The GetOrderByID function scans 4 fields for an order.
+
 	mockRow.On("Scan", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(sql.ErrNoRows)
 
 	mockDB.On("QueryRow", "SELECT order_id, total_price, vat_amount, created_at FROM orders WHERE order_id = $1", "nonexistent-order").Return(mockRow)
@@ -235,20 +221,17 @@ func TestCreateOrderHandler_ProductNotFound(t *testing.T) {
 	mockTx := &MockTx{}
 
 	mockDB.On("Begin").Return(mockTx, nil)
-	mockTx.On("Rollback").Return(nil) // Expect a rollback on failure
+	mockTx.On("Rollback").Return(nil)
 
-	// Mock initial order insertion
 	mockResult := new(MockResult)
 	mockResult.On("RowsAffected").Return(int64(1), nil)
 	mockTx.On("Exec", mock.AnythingOfType("string"), mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockResult, nil).Once()
 
-	// Mock GetProductByID to return an error
 	mockRow := new(MockRow)
-	// FIX: The mock for Scan must match the number of arguments for a product.
 	mockRow.On("Scan", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(sql.ErrNoRows)
 	mockTx.On("QueryRow", "SELECT id, name, price, vat_rate FROM products WHERE id = $1", 999).Return(mockRow)
 
-	// Prepare request with a product that doesn't exist
+	// not existing product
 	orderPayload := IncomingOrder{
 		Items: []IncomingOrderItem{{ProductID: 999, Quantity: 1}},
 	}

@@ -1,6 +1,6 @@
 # Mytest Subito Project
 
-## Order API Service
+## Intro
 This project is a RESTful API service written in Go for managing customer orders from a cart.
 
 ## Features

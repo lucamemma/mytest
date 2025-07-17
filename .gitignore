@@ -16,3 +16,4 @@ mytest
 
 # Dependency directories (Go modules)
 /vendor/
+.DS_Store
